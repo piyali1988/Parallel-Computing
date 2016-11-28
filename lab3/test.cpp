@@ -1,0 +1,412 @@
+#include<iostream>
+#include<cstdio>
+#include<stdlib.h>
+#include<string>
+#include<math.h>
+#include<stack>
+#include<omp.h>
+#include<fstream>
+#include<sstream>
+#include<vector>
+#include<functional>
+#include <ctime>
+#include <chrono>
+#include <numeric>
+#include<pthread.h>
+
+using namespace std;
+
+double AFFECT_RATE;
+double EPSILON;
+int NUM_THREADS;
+
+struct grid_block{
+	int box_id;
+	int up_left_x;
+	int up_left_y;
+	int height;
+	int width;
+	int num_top_n;
+	int num_bottom_n;
+	int num_left_n;
+	int num_right_n;
+	vector<int> top_n;
+	vector<int> bottom_n;
+	vector<int> left_n;
+	vector<int> right_n;
+	double temperature;
+	int perimeter;
+};
+
+vector<grid_block> grid_blocks;
+vector<double> temporary;
+
+int iter_count = 0;
+clock_t clock_time = 0;
+time_t time_time=0;
+
+int convergence = 0;
+
+int g_num_of_grids;
+int g_num_of_iterations = 0;
+
+void print_block(grid_block box);
+
+void print_blocks(vector<grid_block>& grid_blocks);
+
+void parse_input(vector<grid_block>& grid_blocks);
+
+double sum_of_temp_on_perimeter(grid_block box,vector<grid_block>& grid_blocks);
+
+double contact_dist(int id1, int id2, vector<grid_block>& grid_blocks);
+
+double temperature_difference(int id1,vector<grid_block>& grid_blocks);
+
+void effective_perimeter(vector<grid_block>& grid_blocks);
+
+void DSV_iteration(vector<grid_block>& grid_blocks);
+
+void *compute_and_store (void *);
+
+int is_point_of_convergence();
+
+
+
+int main(int argc, char **argv){
+	clock_t begin = clock();
+	AFFECT_RATE = atof(argv[1]);
+	EPSILON = atof(argv[2]);
+	NUM_THREADS = atoi(argv[3]);
+	cout<<"Affect_rate : "<<argv[1]<<endl;
+	cout<<"Epsilon : "<<argv[2]<<endl;
+	cout<<"Threads : "<<argv[3]<<endl;
+
+	int num_grid_rows,num_grid_columns;	
+	string line;
+	int id;
+	//parse input from the file.
+	parse_input(grid_blocks);
+	//print the parsed data.
+	//print_blocks(grid_blocks);
+	effective_perimeter(grid_blocks);
+	DSV_iteration(grid_blocks);
+	clock_t end = clock();
+  	double elapsed_secs = double(end - begin)/CLOCKS_PER_SEC;
+  	cout<<"Complete running time : "<<elapsed_secs<<endl;
+	return 0;
+}
+
+void parse_input(vector<grid_block>& grid_blocks ){
+	int num_grid_rows,num_grid_columns;
+	int id;	
+	string line;
+
+	    	cin>>g_num_of_grids;
+	    	cin>>num_grid_rows;
+	    	cin>>num_grid_columns;
+				
+		//Lets get the grid parameters here.
+		for (int i=0;i<g_num_of_grids;i++){
+			//get the grid box id.
+			//add a new grid block to the array of blocks.
+		  	grid_blocks.push_back(grid_block());
+		  	cin >> grid_blocks[i].box_id;
+
+		  	//get coordinates of the box and its size.
+		  	cin >> grid_blocks[i].up_left_x;
+		  	cin >> grid_blocks[i].up_left_y;
+		  	cin >> grid_blocks[i].height;
+		  	cin >> grid_blocks[i].width;
+		  	
+		  	//get the details about neighbors.
+		  	//get the details of the top neighbors.
+		  	cin >> grid_blocks[i].num_top_n;
+		  	for (int j=0;j<grid_blocks[i].num_top_n;j++){
+		  		cin >> id;
+		  		grid_blocks[i].top_n.push_back(id);
+			}
+			//get details of the bottom neighnbors.
+		  	cin >> grid_blocks[i].num_bottom_n;
+		  	for (int j=0;j<grid_blocks[i].num_bottom_n;j++){
+		  		cin >> id;
+		  		grid_blocks[i].bottom_n.push_back(id);
+			}
+			//get details of the right neighnbors.
+		  	cin >> grid_blocks[i].num_left_n;
+		  	for (int j=0;j<grid_blocks[i].num_left_n;j++){
+		  		cin >> id;
+		  		grid_blocks[i].left_n.push_back(id);
+			}
+			//get details of the left neighnbors.
+		  	cin>> grid_blocks[i].num_right_n;
+		  	for (int j=0;j<grid_blocks[i].num_right_n;j++){
+		  		cin >> id;
+		  		grid_blocks[i].right_n.push_back(id);
+			}
+			//get the temperature of the box.
+			cin >> grid_blocks[i].temperature;
+			//print the grid block.
+			//print_block(grid_blocks[i]);
+		}
+}
+
+void print_blocks(vector<grid_block>& grid_blocks){
+	for (int i=0;i<grid_blocks.size();i++){
+		print_block(grid_blocks[i]);
+	}
+}
+
+void print_block(grid_block box){
+	cout<<"--------------"<<endl;
+	cout<<"box_id : "<<box.box_id<<endl;
+	cout<<"up_left_x : "<<box.up_left_x<<" up_left_y : "<<box.up_left_y<<" height : "<<box.height<<" width : "<<box.width<<endl;
+	cout<<"num_top_n : "<<box.num_top_n<<" ::: ";
+	for (int i=0;i<box.num_top_n;i++){
+		cout<<box.top_n[i]<<" , ";
+	}
+	cout<<endl;
+	cout<<"num_bottom_n : "<<box.num_bottom_n<<" ::: ";
+	for (int i=0;i<box.num_bottom_n;i++){
+		cout<<box.bottom_n[i]<<" , ";
+	}
+	cout<<endl;
+	cout<<"num_left_n : "<<box.num_left_n<<" ::: ";
+	for (int i=0;i<box.num_left_n;i++){
+		cout<<box.left_n[i]<<" , ";
+	}
+	cout<<endl;
+	cout<<"num_right_n : "<<box.num_right_n<<" ::: ";
+	for (int i=0;i<box.num_right_n;i++){
+		cout<<box.right_n[i]<<" , ";
+	}
+	cout<<endl;
+	cout<<"temperature : "<<box.temperature<<endl;
+	cout<<"perimeter : "<<box.perimeter<<endl;
+	cout<<"--------------"<<endl;
+}
+
+double sum_of_temp_on_perimeter(grid_block box,vector<grid_block>& grid_blocks){
+	double temperature = 0.0;
+	int id;
+	//Add temperatures on the top neighbors.
+	for (int i=0;i<box.num_top_n;i++){
+		id = box.top_n[i];
+		temperature += contact_dist(box.box_id,id,grid_blocks)*grid_blocks[id].temperature;
+	}
+	//Add temperatures on the bottom neighbors.
+	for (int i=0;i<box.num_bottom_n;i++){
+		id = box.bottom_n[i];
+		temperature += contact_dist(box.box_id,id,grid_blocks)*grid_blocks[id].temperature;
+	}
+	//Add temperatures on the left neighbors.
+	for (int i=0;i<box.num_left_n;i++){
+		id = box.left_n[i];
+		temperature += contact_dist(box.box_id,id,grid_blocks)*grid_blocks[id].temperature;
+	}
+	//Add temperatures on the right neighbors.
+	for (int i=0;i<box.num_right_n;i++){
+		id = box.right_n[i];
+		temperature += contact_dist(box.box_id,id,grid_blocks)*grid_blocks[id].temperature;
+	}
+	return temperature;
+}
+
+double contact_dist(int id1, int id2, vector<grid_block>& grid_blocks){
+	double weight = 0;
+	if((grid_blocks[id1].up_left_x <= grid_blocks[id2].up_left_x) && (grid_blocks[id2].up_left_x < (grid_blocks[id1].up_left_x + grid_blocks[id1].width))){
+		if((grid_blocks[id2].up_left_x + grid_blocks[id2].width) < (grid_blocks[id1].up_left_x + grid_blocks[id1].width)){
+			weight =  grid_blocks[id2].width;
+		}else{
+			weight =  grid_blocks[id1].up_left_x + grid_blocks[id1].width - grid_blocks[id2].up_left_x;
+		}
+	}else if((grid_blocks[id2].up_left_x <= grid_blocks[id1].up_left_x ) && (grid_blocks[id1].up_left_x < (grid_blocks[id2].up_left_x + grid_blocks[id2].width))){
+		if((grid_blocks[id1].up_left_x + grid_blocks[id1].width) < (grid_blocks[id2].up_left_x + grid_blocks[id2].width)){
+			weight = grid_blocks[id1].width;
+		}else{
+			weight = grid_blocks[id2].up_left_x + grid_blocks[id2].width - grid_blocks[id1].up_left_x;
+		}
+	}else if((grid_blocks[id1].up_left_y <= grid_blocks[id2].up_left_y ) && ( grid_blocks[id2].up_left_y < (grid_blocks[id1].up_left_y + grid_blocks[id1].height))){
+		if((grid_blocks[id2].up_left_y + grid_blocks[id2].height) < (grid_blocks[id1].up_left_y + grid_blocks[id1].height)){
+			weight = grid_blocks[id2].height;
+		}else{
+			weight = grid_blocks[id1].up_left_y + grid_blocks[id1].height - grid_blocks[id2].up_left_y;
+		}
+	}else if((grid_blocks[id2].up_left_y <= grid_blocks[id1].up_left_y ) && (grid_blocks[id1].up_left_y < (grid_blocks[id2].up_left_y + grid_blocks[id2].height))){
+		if((grid_blocks[id1].up_left_y + grid_blocks[id1].height) < (grid_blocks[id2].up_left_y + grid_blocks[id2].height)){
+			weight = grid_blocks[id1].height;
+		}else{
+			weight = grid_blocks[id2].up_left_y + grid_blocks[id2].height - grid_blocks[id1].up_left_y;
+		}
+	}
+	//cout<<"weight-----"<<weight<<endl;
+	return weight;
+}
+
+double temperature_difference(int id,vector<grid_block>& grid_blocks){
+	double diff;
+	diff = grid_blocks[id].temperature - (sum_of_temp_on_perimeter(grid_blocks[id],grid_blocks)/grid_blocks[id].perimeter);
+	return diff;
+}
+
+void effective_perimeter(vector<grid_block>& grid_blocks){
+	int id;
+	for(int i=0;i<grid_blocks.size();i++){
+		int perimeter = 0;
+		for (int j=0;j<grid_blocks[i].num_top_n;j++){
+			id = grid_blocks[i].top_n[j];
+			perimeter += contact_dist(grid_blocks[i].box_id,id,grid_blocks);
+		}
+		//Add temperatures on the bottom neighbors.
+		for (int j=0;j<grid_blocks[i].num_bottom_n;j++){
+			id = grid_blocks[i].bottom_n[j];
+			perimeter += contact_dist(grid_blocks[i].box_id,id,grid_blocks);
+		}
+		//Add temperatures on the left neighbors.
+		for (int j=0;j<grid_blocks[i].num_left_n;j++){
+			id = grid_blocks[i].left_n[j];
+			perimeter += contact_dist(grid_blocks[i].box_id,id,grid_blocks);
+		}
+		//Add temperatures on the right neighbors.
+		for (int j=0;j<grid_blocks[i].num_right_n;j++){
+			id = grid_blocks[i].right_n[j];
+			perimeter += contact_dist(grid_blocks[i].box_id,id,grid_blocks);
+		}
+		grid_blocks[i].perimeter = perimeter;
+	}
+}
+
+void DSV_iteration(vector<grid_block>& grid_blocks){
+	//vector<double> temporary;
+	bool stop = false;
+	int actualThreadCount=0, k=0;
+	omp_set_num_threads(NUM_THREADS);
+	for(int i=0;i<grid_blocks.size();i++){
+		temporary.push_back(0);
+	}
+	cout<<"Running iterations on persistant threads."<<endl;
+	auto t_chrono = chrono::system_clock::now();
+	clock_t begin = clock();
+
+	bool convergence_reached=false;
+    	#pragma omp parallel
+   	{
+		actualThreadCount = omp_get_num_threads();
+		for(int i=0; i < actualThreadCount; i++ )
+			k = *((int*) (&i));
+		while(!convergence_reached){
+			//cout<<"iteration number : "<<g_num_of_iterations<<endl;
+
+		    #pragma omp single
+		    {
+			
+			for (int j=k; j<g_num_of_grids; j+=actualThreadCount){
+				double diff = temperature_difference(j,grid_blocks);
+				temporary[j] = grid_blocks[j].temperature - diff*AFFECT_RATE;
+			}
+			//pthread_barrier_wait(&preUpdateBarrier);
+		    }
+			if(k==0)
+			{
+				convergence_reached = IsConvergenceReached();
+				if(convergence_reached){
+					cout<<"convergence reached."<<endl;
+				}
+			
+				g_num_of_iterations++;
+			}
+			//cout<<"waiting thread no. "<<k;
+			//pthread_barrier_wait(&convergenceCheckBarrier);
+		}
+	//pthread_barrier_destroy(&iterationEndBarrier);
+     	}
+
+	
+	
+/*	pthread_t threads[NUM_THREADS];	
+	pthread_barrier_init(&iterationEndBarrier, NULL, NUM_THREADS);
+	pthread_barrier_init(&convergenceCheckBarrier, NULL, NUM_THREADS);
+	pthread_barrier_init(&preUpdateBarrier, NULL, NUM_THREADS);
+
+	for(int i=0; i < NUM_THREADS; i++ ){
+		pthread_create(&threads[i], NULL , compute_and_store,(void *)i);
+	}
+	for(int i=0; i < NUM_THREADS; i++ ){
+		pthread_join(threads[i], NULL );
+		//pthread_tryjoin_np(threads[i], NULL );
+		cout<<"Threads Joined"<<endl;
+		pthread_cancel(threads[i]);
+	}
+
+	pthread_barrier_destroy(&convergenceCheckBarrier);
+	pthread_barrier_destroy(&preUpdateBarrier);
+*/
+
+	auto t_chronod = chrono::system_clock::now() - t_chrono;
+//	cout<<"final iteration : "<<j<<endl;
+	clock_t end = clock();
+  	double actual_time = double(end - begin)/CLOCKS_PER_SEC;
+  	cout<<"Loop running time : "<< actual_time <<endl;
+	cout  << "Elapsed convergence loop time (chrono): "<<chrono::duration<double,std::milli>(t_chronod).count() << endl;
+	cout<<"final no. of iterations : "<<g_num_of_iterations<<endl;
+}
+
+/*void *compute_and_store (void* i){
+	int k = *((int*) (&i));
+	bool convergence_reached=false;
+    #pragma omp parallel
+    {
+
+	while(!convergence_reached){
+		//cout<<"iteration number : "<<g_num_of_iterations<<endl;
+
+	    #pragma omp single
+            {
+		actualThreadCount = omp_get_num_threads();
+		for (int j=k; j<g_num_of_grids; j+=actualThreadCount){
+			double diff = temperature_difference(j,grid_blocks);
+			temporary[j] = grid_blocks[j].temperature - diff*AFFECT_RATE;
+		}
+		//pthread_barrier_wait(&preUpdateBarrier);
+	    }
+		if(k==0)
+		{
+			convergence_reached = IsConvergenceReached();
+			if(convergence_reached){
+				cout<<"convergence reached."<<endl;
+			}
+			
+			g_num_of_iterations++;
+		}
+		//cout<<"waiting thread no. "<<k;
+		//pthread_barrier_wait(&convergenceCheckBarrier);
+	}
+	//pthread_barrier_destroy(&iterationEndBarrier);
+     }
+	
+}*/
+
+bool IsConvergenceReached(){
+	double min = temporary[0];
+	double max = temporary[0];
+	bool stop = false;
+	for(int i=0;i<grid_blocks.size();i++){
+		grid_blocks[i].temperature = temporary[i];
+		if(temporary[i] < min){
+			min = temporary[i];
+		}
+		if(temporary[i] > max){
+			max = temporary[i];
+		}
+	}
+	if((max-min) < max*EPSILON){
+		cout<<"min temperature : "<<min<<endl<<"max temperature : "<<max<<endl;
+		stop = true;
+	} 
+	return stop;
+}
+
+int is_point_of_convergence() {
+    //float max = max_dsv();
+    //float min = min_dsv();
+    return max - min <= EPSILON * max ? 1: 0;
+}
